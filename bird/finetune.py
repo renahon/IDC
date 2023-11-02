@@ -214,6 +214,7 @@ def train():
         # print('Learning Rate ', optim.state_dict()['param_groups'][0]['lr'])
     return 0
 
+
 def validate(loader, model, global_step):
     print('Starting Evaluation...')
     model.eval()
