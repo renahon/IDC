@@ -115,6 +115,7 @@ class Model(nn.Module):
 
 
 class AveragingModel(nn.Module):
+    # Model used to accumulate latent representations of images of both datasets, to produce only a difference between datasets
     def __init__(self, ff_dim, img_embs, n_hidden, n_head, n_block, se_block, de_block, vocab_size, dropout, max_len, CLS):
         super(Model, self).__init__()
         # initilize parameter
@@ -158,9 +159,14 @@ class AveragingModel(nn.Module):
         image_embs1 = self.single_img_encoder(image_embs1)
         image_embs2 = self.single_img_encoder(image_embs2)
         if accumulation_dict is not None:
-            accumulation_dict['img1'] = (accumulation_dict['nb_elts']*accumulation_dict['img1']+img_embs1)/accumulation_dict['nb_elts']+1
-            accumulation_dict['img2'] = (accumulation_dict['nb_elts']*accumulation_dict['img2']+img_embs2)/accumulation_dict['nb_elts']+1
-            accumulation_dict['nb_elts'] = accumulation_dict['nb_elts']+1
+            if accumulation_dict['nb_elts']==0:
+                accumulation_dict['img1'] = img_embs1
+                accumulation_dict['img2'] = img_embs2
+                accumulation_dict['nb_elts'] = 1
+            else: 
+                accumulation_dict['img1'] = (accumulation_dict['nb_elts']*accumulation_dict['img1']+img_embs1)/accumulation_dict['nb_elts']+1
+                accumulation_dict['img2'] = (accumulation_dict['nb_elts']*accumulation_dict['img2']+img_embs2)/accumulation_dict['nb_elts']+1
+                accumulation_dict['nb_elts'] = accumulation_dict['nb_elts']+1
             if accumulation_dict['return']:
                 return accumulation_dict
             else: 
@@ -247,6 +253,30 @@ class AveragingModel(nn.Module):
             next_w = next_w.data
             gen_tokens = torch.cat([gen_tokens, next_w], dim=-1)
         return gen_tokens
+    
+@torch.no_grad()
+def greedy_from_embs(self, image_embs1, image_embs2): 
+    # Inference algorithm from embedding space
+    batch_size=1
+    image_embs = self.double_img_encoder(torch.cat((image_embs1, image_embs2), dim=1))
+    # to get img token k,v cache -> improve computation efficiency
+    output = self.encoder(image_embs, step=0)
+    # decoder process
+    mask_token = Variable(torch.LongTensor([MASK]*batch_size).unsqueeze(1)).cuda() # MASK token: (batch size, 1)
+    gen_tokens = Variable(torch.ones(batch_size, 1).long()).cuda() # input cap initialize: <BOS>
+    for i in range(1, self.max_len):
+        # each time input previous generated token + <MASK>    
+        Des = torch.cat([gen_tokens, mask_token], dim=-1)
+        text_embs = self.word_embedding(Des)
+        text_embs = self.position_encoding(text_embs, mode='text', pos=6)
+        step_attn_mask = Variable(decode_mask(batch_size, Img1.size(1)+1, i+1), requires_grad=False).cuda()
+        out = self.encoder(text_embs, mask=step_attn_mask, step=i).squeeze()
+        out = self.output_layer(out)
+        prob = out[:,-1] # output prob
+        _, next_w = torch.max(prob, dim=-1, keepdim=True)
+        next_w = next_w.data
+        gen_tokens = torch.cat([gen_tokens, next_w], dim=-1)
+    return gen_tokens
 
 
 
