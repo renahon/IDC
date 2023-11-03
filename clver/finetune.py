@@ -318,7 +318,8 @@ def Inference(loader, test_loader, model, global_step):
 def test(test_loader=None, model=None):
     if test_loader is None:
         print("Test: load data ...")
-        test_set = get_dataset(os.path.join(args.data_path, 'test.json'), images, 'test')
+        test_set = get_dataset(os.path.join(args.data_path, 'test.json'),
+                                images, 'test')
         test_loader = get_dataloader(test_set, args.batch_size, is_train=False, self_define=True)
     if model is None:
         print("Test: load best checkpoint ...")
