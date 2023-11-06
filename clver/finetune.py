@@ -30,7 +30,7 @@ from para import parse_args
 
 
 args = parse_args()
-os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu_id
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 # import dataset: diff dataset use diff function
 if args.dataset == 'bird':
     import data.dataset_finetune_bird as dataset
@@ -100,122 +100,6 @@ def get_dataloader(input_dataset, batch_size, is_train=True, self_define=False):
     return loader
 
 
-def train():
-    # build data loaders
-    train_set = get_dataset(os.path.join(args.data_path, 'train.json'), images, 'train')
-    valid_set_P = get_dataset(os.path.join(args.data_path, 'val.json'), images, 'val', 'P') 
-    valid_set = get_dataset(os.path.join(args.data_path, 'val.json'), images, 'val') 
-    
-    train_loader = get_dataloader(train_set, args.batch_size, is_train=True)
-    valid_loader_P = get_dataloader(valid_set_P, args.batch_size, is_train=False)
-    valid_loader = get_dataloader(valid_set, args.batch_size, is_train=False, self_define=True)
-
-    test_set = get_dataset(os.path.join(args.data_path, 'test.json'), images, 'test')
-    test_loader = get_dataloader(test_set, args.batch_size, is_train=False, self_define=True)
-
-    # Prepare model
-    model = modules.Model(ff_dim = args.dim_ff,
-                          img_embs = args.img_embs,
-                          n_hidden = args.n_embs,
-                          n_head = args.n_head,
-                          n_block = args.n_block,
-                          img_enc_block = args.img_enc_block,
-                          vocab_size = vocab_size,
-                          dropout = args.dropout,
-                          max_len = args.max_len,
-                          CLS = vocabs['<CLS>'])
-
-    # load checkpoint
-    if args.restore != '':
-        print("load parameters from {}".format(args.restore))
-        checkpoint = torch.load(args.restore)
-        if 'model_state_dict' in checkpoint.keys():
-            pretrained_dict = checkpoint['model_state_dict']
-        else:
-            pretrained_dict = checkpoint
-        model_dict = model.state_dict()
-        print([k for k, v in pretrained_dict.items() if k not in model_dict])
-        pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in model_dict and 'pooler' not in k}
-        model_dict.update(pretrained_dict)
-        model.load_state_dict(model_dict)
-        print("load checkpoint finished")
-
-    model.cuda()
-    # Prepare optimizer
-    optim = Optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr = args.lr, weight_decay=args.weight_decay)
-    best_score = 0
-    no_beat = 0
-    global_step = -1
-    while True:
-        report_mlm_loss, report_itm_loss, start_time, n_samples = 0, 0, time.time(), 0
-        for step, batch in tqdm(enumerate(train_loader)):
-            global_step += 1
-            model.train()
-            model.zero_grad()
-            mlm_loss, itm_loss = model(batch, compute_loss=True)
-            mlm_loss = mlm_loss.sum()
-            itm_loss = itm_loss.sum()
-            if args.l2_wd > 0:
-                l2_loss = L2_SP(args, model, pretrained_dict)
-                loss = mlm_loss + itm_loss + l2_loss
-            else:
-                loss = mlm_loss + itm_loss
-            loss.backward()
-
-            # learning rate scheduling
-            lr_this_step = get_lr_sched(global_step, args, pretrain=False)
-            for param_group in optim.param_groups:
-                param_group['lr'] = lr_this_step
-
-            # learning rate keep unchanged lr = 5e-5
-            writer.add_scalar('lr', optim.state_dict()['param_groups'][0]['lr'], global_step)
-            optim.step()
-
-            report_mlm_loss += mlm_loss.data.item()
-            report_itm_loss += itm_loss.data.item()
-            n_samples += len(batch['img1'].data)
-
-            # evaluating and logging
-            if global_step > 0 and global_step % args.report == 0:
-                # report train loss & writing to log & add to tensorboard 
-                print('global_step: %d, epoch: %d, report_mlm_loss: %.3f, report_itm_loss: %.3f, time: %.2f'
-                        % (global_step, global_step//len(train_loader), report_mlm_loss / n_samples, report_itm_loss / n_samples, time.time() - start_time))
-                train_logger.print_train_stats('mlm', global_step//len(train_loader), global_step, [report_mlm_loss / n_samples, report_itm_loss / n_samples], time.time() - start_time, stage='finetune')
-                writer.add_scalar(args.dataset + '_train/mlm_loss', report_mlm_loss/n_samples, global_step)
-                writer.add_scalar(args.dataset + '_train/itm_loss', report_itm_loss/n_samples, global_step)
-                # calculate validate loss + word acc
-                stats = {}
-                stats = validate(valid_loader_P, model, global_step)
-                # Inference algorithm & calculate main metric
-                scores = Inference(valid_loader, test_loader, model, global_step)
-                score = scores[args.main_metric] 
-                model.train()
-                if score > best_score:
-                    no_beat = 0
-                    best_score = score
-                    print('Score Beat ', score, '\n')
-                    save_model(os.path.join(checkpoint_path, 'best_checkpoint.pt'), model)
-                else:
-                    no_beat += 1
-                    # save_model(os.path.join(checkpoint_path, 'checkpoint_{}.pt'.format(global_step)), model)
-                    print('Term ', no_beat, 'Best Term', best_score, '\n')
-                # add main metric score to log
-                stats.update(scores)
-                stats['main_metric_best'] = best_score
-                val_logger.print_eval_stats(global_step, stats, no_beat)
-                for k,v in stats.items():
-                    writer.add_scalar(args.dataset + '_validate/' + k, v, global_step)
-
-                # early stop
-                if no_beat == args.early_stop:
-                    test(test_loader)
-                    sys.exit()
-                report_loss, start_time, n_samples = 0, time.time(), 0
-            if global_step > args.total_train_steps:
-                test(test_loader)
-                sys.exit()
-        # print('Learning Rate ', optim.state_dict()['param_groups'][0]['lr'])
-    return 0
 
 def validate(loader, model, global_step):
     print('Starting Evaluation...')
@@ -264,6 +148,7 @@ def Inference(loader, test_loader, model, global_step):
         for bi, batch in enumerate(loader):
             img1, img2, gts, ImgID = batch
             ids = model.greedy(img1, img2).data.tolist()
+            print(ids)
             for i in range(len(img1.data)):
                 id = ids[i]
                 sentences = transform(id)
@@ -362,22 +247,23 @@ def test(test_loader=None, model=None):
     with torch.no_grad():
         with open(os.path.join(out_path, args.out_file), 'w', encoding='utf-8') as fout:
             for i, batch in enumerate(test_loader):
-                img1, img2, gts, ImgID = batch
+                img1, img2, _, _ = batch
+                #print(img1)
                 ids = model.greedy(img1, img2).data.tolist()
-
                 for i in range(len(img1.data)):
                     id = ids[i]
                     sentences = transform(id)
-                    candidates[ImgID[i]] = [' '.join(sentences)]
-                    references[ImgID[i]] = gts[i]
-                    sample = {'ImgId': ImgID[i],
-                            'candidates': [' '.join(s for s in sentences)]
-                            #'references': Caps
-                            }
+                    #candidates[ImgID[i]] = [' '.join(sentences)]
+                    #references[ImgID[i]] = gts[i]
+                    #sample = {'ImgId': ImgID[i],
+                    #        'candidates': [' '.join(s for s in sentences)]
+                    #        'references': Caps
+                    #        }
+                    print(' '.join(sentences))
                     cand_lists.append(' '.join(sentences))
-                    ref_lists.append(gts[i])
-                    jterm = json.dumps(sample, ensure_ascii=False)
-                    fout.write(jterm + '\n')
+                    #ref_lists.append(gts[i])
+                    #jterm = json.dumps(sample, ensure_ascii=False)
+                    # fout.write(jterm + '\n')
     evaluator = Evaluator(references, candidates)
     score = evaluator.evaluate()
     # P_mul, R_mul, F_mul = scorer.score(cand_lists, ref_lists)

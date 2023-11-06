@@ -44,7 +44,7 @@ def parse_args():
     parser.add_argument('--warmup_steps', type=int, default=4000) # small data 4000; big data 8000
     parser.add_argument('--valid_steps', type=int, default=220)
     parser.add_argument('--total_train_steps', type=int, default=10000) # around 45 epoch
-    
+
     parser.add_argument('--data_path', type=str, default='')
     parser.add_argument('--vocab_path', type=str, default='')
     parser.add_argument('--dataset', type=str, required=True, default='bird')

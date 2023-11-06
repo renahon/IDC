@@ -80,7 +80,7 @@ python3.6 finetune.py --mode test --dataset clver --gpu_id 0 \
 
 
 cd ../eval
-python3.6 eval_models.py --dataset clevr \
+python3 eval_models.py --dataset clevr \
 --testfile  ../clver/experiments/finetune_clver_neg_tfidf6_t1.0/results.json \
 --gtfile ../clver/dataset_clver/test.json
 ```

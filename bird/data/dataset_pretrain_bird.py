@@ -61,6 +61,7 @@ class Dataset(torch.utils.data.Dataset):
         batch = {}
         # get raw triplet input data (img1, img2, text)
         img1 = torch.from_numpy(self.images[data['img1']])
+        print(img1.size())
         img2 = torch.from_numpy(self.images[data['img2']])
         dim, n, n = img1.size(0), img1.size(1), img1.size(2)
         img1, img2 = img1.view(dim, -1).transpose(0,1), img2.view(dim, -1).transpose(0,1)

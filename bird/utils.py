@@ -44,6 +44,8 @@ def load_images(data_path):
     for key in datas:
         images[key.replace('.jpg', '').split('/')[-1]] = datas[key]
     print('Total images ', len(images))
+    x = torch.from_numpy(images[key.replace('.jpg', '').split('/')[-1]])# Suppress
+    print(x.size())#Suppress
     return images
 
 def get_images_name(data_path):

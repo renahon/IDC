@@ -70,6 +70,7 @@ class Dataset(torch.utils.data.Dataset):
         if self.split == 'train' or self.set_type == 'P':
             # get raw triplet input data (img1, img2, text)
             img1 = torch.from_numpy(self.images[data['img']])
+            print(img1)
             dim, n, n = img1.size(0), img1.size(1), img1.size(2)
             img1 = img1.view(dim, -1).transpose(0,1)
             # make sure img1 & img2 shape = [49,2048] 
@@ -85,6 +86,8 @@ class Dataset(torch.utils.data.Dataset):
         else:
             # get raw triplet input data (img1, img2, text)
             img1 = torch.from_numpy(self.images[data['img']])
+            print(img1)
+
             dim, n, n = img1.size(0), img1.size(1), img1.size(2)
             img1 = img1.view(dim, -1).transpose(0,1)
             # make sure img1 & img2 shape = [49,2048] 

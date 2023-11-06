@@ -15,7 +15,7 @@ import torchvision
 import torch.optim as Optim
 from torch.autograd import Variable
 import torch.nn.functional as F
-from bird.modules_finetune_bird import AveragingModel
+from modules_finetune_bird import Model
 from utils import *
 from eval import Evaluator
 
@@ -28,7 +28,7 @@ from para import parse_args
 
 
 args = parse_args()
-os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu_id
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"#args.gpu_id
 # import dataset: diff dataset use diff function
 if args.dataset == "bird":
     import data.dataset_finetune_bird as dataset
@@ -52,6 +52,7 @@ print("seed", args.seed)
 images = load_images(args.data_path)
 vocabs, rev_vocabs = load_vocabs(args.vocab_path)
 vocab_size = len(vocabs)
+print(f"vocabsize={vocab_size}")
 
 if not os.path.exists("./experiments"):
     os.mkdir("./experiments")
@@ -283,7 +284,7 @@ def validate(loader, model, global_step):
 
 def validate_accumulate(
     loader,
-    model: AveragingModel,
+    model: Model,
 ):
     print("Starting Accumulation...")
     model.eval()
@@ -312,6 +313,7 @@ def Inference(loader, test_loader, model, global_step):
             for i in range(len(img1.data)):
                 id = ids[i]
                 sentences = transform(id)
+
                 # show generate sent case
                 if bi == 0 and i < 3:
                     print(" ".join(sentences))
@@ -408,8 +410,8 @@ def test():
         with open(os.path.join(out_path, args.out_file), "w", encoding="utf-8") as fout:
             for i, batch in enumerate(test_loader):
                 img1, img2, gts, ImgID = batch
+                #print(img1)
                 ids = model.greedy(img1, img2).data.tolist()
-
                 for i in range(len(img1.data)):
                     id = ids[i]
                     sentences = transform(id)
@@ -422,7 +424,6 @@ def test():
                         "candidates": [" ".join(s for s in sentences)]
                         #'references': Caps
                     }
-
                     jterm = json.dumps(sample, ensure_ascii=False)
                     fout.write(jterm + "\n")
     evaluator = Evaluator(references, candidates)

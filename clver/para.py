@@ -52,7 +52,7 @@ def parse_args():
     parser.add_argument('--main_metric', type=str, default='CIDEr') #or 'ROUGE_L' or 'METEOR'
     parser.add_argument('--restore', type=str, default='', help="Pretraining model path")
     parser.add_argument('--best_ckpt', type=str, default='', help="checkpoint path of test stage")
-    parser.add_argument('--gpu_id', type=str, default='3', help='gpu id')
+    parser.add_argument('--gpu_id', type=str, default='0', help='gpu id')
     parser.add_argument('--exp_name', type=str, required=True, default='spot')
     parser.add_argument('--out_file', type=str, default='result.json', help = 'result for evaluation')
     parser.add_argument('--para_file', type=str, default='para.py')
