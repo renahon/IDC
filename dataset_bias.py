@@ -11,6 +11,7 @@ from torch.autograd import Variable
 import torch
 import torch.optim as Optim
 import time
+from torchvision.models.feature_extraction import create_feature_extractor
 from biased_mnist import get_biased_mnist_dataloader
 from bird.modules_finetune_bird import (
     LayerNorm,
@@ -22,6 +23,7 @@ from bird.modules_finetune_bird import (
 from torch.utils.data.dataloader import default_collate
 from bird.para import parse_args
 from tqdm import tqdm
+from torchvision.models import ResNet101_Weights, resnet101
 
 MASK = 5
 BOS = 1
@@ -334,7 +336,8 @@ class DatasetBias(Dataset):
             "; nonsemantic ",
             count_ns,
         )
-
+    
+    @torch.no_grad()
     def load_data(self, dataset):
         if dataset == "BiasedMNIST":
             self.datas = []
@@ -349,24 +352,40 @@ class DatasetBias(Dataset):
                 data_label_correlation=0.101,
             )
 
+            # Load ResNet101 - Pretrained on MNIST
+            weights = ResNet101_Weights.IMAGENET1K_V2
+            preprocess = weights.transforms()
+            model = resnet101(weights=weights)
+            return_layer = {"layer4.2.relu_2": "bot"}
+            # get the output of the bottleneck layer
+            model_bot = create_feature_extractor(model, return_layer)
+            model_bot.eval()
+            # Iterate on both dataloaders at once
             dataloader_iterator = iter(dl_aligned)
-            for _, (img2, label2, bias_label2, idx2) in enumerate(dl_balanced):
+            for i, (img2, label2, bias_label2, idx2) in enumerate(dl_balanced):
                 try:
                     (img1, label1, bias_label1, idx1) = next(dataloader_iterator)
                 except StopIteration:
                     dataloader_iterator = iter(dl_aligned)
                     (img1, label1, bias_label1) = next(dataloader_iterator)
-
-                self.datas.append(
-                    {
-                        "img1": img1,
-                        "label1": label1,
-                        "bias_label1": bias_label1,
-                        "img2": img2,
-                        "label2": label2,
-                        "bias_label2": bias_label2,
-                    }
-                )
+                # Resize img1, img2 to have them be 3x224x224 and fit to resnet101
+                if i < 10: # to remove 
+                    print(img1.size())
+                    img1_transformed = preprocess(img1)
+                    img2_transformed = preprocess(img2)
+                    print(img1_transformed.size())
+                    # Get representations of img1 and img2 by ResNet101
+                    rep1 = model_bot(img1_transformed)['bot']
+                    rep2 = model_bot(img2_transformed)['bot']
+                    dict_imgs = {
+                            "img1": rep1,
+                            "label1": label1,
+                            "bias_label1": bias_label1,
+                            "img2": rep2,
+                            "label2": label2,
+                            "bias_label2": bias_label2,
+                        }
+                    self.datas.append(dict_imgs)
             print("Total datas ", len(self.datas))
 
     def __len__(self):
