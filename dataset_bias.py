@@ -8,6 +8,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd import Variable
+from tensordict import TensorDict
 import torch
 import torch.optim as Optim
 import time
@@ -340,53 +341,59 @@ class DatasetBias(Dataset):
     @torch.no_grad()
     def load_data(self, dataset):
         if dataset == "BiasedMNIST":
-            self.datas = []
-            dl_aligned = get_biased_mnist_dataloader(
-                root="/home/infres/rnahon/projects/IDC/data_MNIST",
-                batch_size=100,
-                data_label_correlation=0.991,
-            )
-            dl_balanced = get_biased_mnist_dataloader(
-                root="/home/infres/rnahon/projects/IDC/data_MNIST",
-                batch_size=100,
-                data_label_correlation=0.101,
-            )
+            dict_path = "/home/infres/rnahon/projects/IDC/data_MNIST/dict_resnet101.pth"
+            if os.path.exists(dict_path):
+                snapshot = Snapshot(path=dict_path)
+                #cf https://pytorch.org/tensordict/saving.html
+                self.datas= torchsnapshot.Snapshot.take(a)
+            else: 
+                self.datas = TensorDict().to("cuda:0")
+                dl_aligned = get_biased_mnist_dataloader(
+                    root="/home/infres/rnahon/projects/IDC/data_MNIST",
+                    batch_size=100,
+                    data_label_correlation=0.991,
+                )
+                dl_balanced = get_biased_mnist_dataloader(
+                    root="/home/infres/rnahon/projects/IDC/data_MNIST",
+                    batch_size=100,
+                    data_label_correlation=0.101,
+                )
 
-            # Load ResNet101 - Pretrained on MNIST
-            weights = ResNet101_Weights.IMAGENET1K_V2
-            preprocess = weights.transforms()
-            model = resnet101(weights=weights)
-            return_layer = {"layer4.2.relu_2": "bot"}
-            # get the output of the bottleneck layer
-            model_bot = create_feature_extractor(model, return_layer)
-            model_bot.eval()
-            # Iterate on both dataloaders at once
-            dataloader_iterator = iter(dl_aligned)
-            for i, (img2, label2, bias_label2, idx2) in enumerate(dl_balanced):
-                try:
-                    (img1, label1, bias_label1, idx1) = next(dataloader_iterator)
-                except StopIteration:
-                    dataloader_iterator = iter(dl_aligned)
-                    (img1, label1, bias_label1) = next(dataloader_iterator)
-                # Resize img1, img2 to have them be 3x224x224 and fit to resnet101
-                if i < 10: # to remove 
-                    print(img1.size())
-                    img1_transformed = preprocess(img1)
-                    img2_transformed = preprocess(img2)
-                    print(img1_transformed.size())
-                    # Get representations of img1 and img2 by ResNet101
-                    rep1 = model_bot(img1_transformed)['bot']
-                    rep2 = model_bot(img2_transformed)['bot']
-                    dict_imgs = {
-                            "img1": rep1,
-                            "label1": label1,
-                            "bias_label1": bias_label1,
-                            "img2": rep2,
-                            "label2": label2,
-                            "bias_label2": bias_label2,
-                        }
-                    self.datas.append(dict_imgs)
-            print("Total datas ", len(self.datas))
+                # Load ResNet101 - Pretrained on MNIST
+                weights = ResNet101_Weights.IMAGENET1K_V2
+                preprocess = weights.transforms()
+                model = resnet101(weights=weights)
+                return_layer = {"layer4.2.relu_2": "bot"}
+                # get the output of the bottleneck layer
+                model_bot = create_feature_extractor(model, return_layer)
+                model_bot.eval()
+                # Iterate on both dataloaders at once
+                dataloader_iterator = iter(dl_aligned)
+                for i, (img2, label2, bias_label2, idx2) in enumerate(dl_balanced):
+                    try:
+                        (img1, label1, bias_label1, idx1) = next(dataloader_iterator)
+                    except StopIteration:
+                        dataloader_iterator = iter(dl_aligned)
+                        (img1, label1, bias_label1) = next(dataloader_iterator)
+                    # Resize img1, img2 to have them be 3x224x224 and fit to resnet101
+                    if i < 10: # to remove 
+                        print(img1.size())
+                        img1_transformed = preprocess(img1)
+                        img2_transformed = preprocess(img2)
+                        print(img1_transformed.size())
+                        # Get representations of img1 and img2 by ResNet101
+                        rep1 = model_bot(img1_transformed)['bot']
+                        rep2 = model_bot(img2_transformed)['bot']
+                        dict_imgs = TensorDict({
+                                "img1": rep1,
+                                "label1": label1,
+                                "bias_label1": bias_label1,
+                                "img2": rep2,
+                                "label2": label2,
+                                "bias_label2": bias_label2,
+                            }
+                        self.datas.append(dict_imgs)
+                print("Total datas ", len(self.datas))
 
     def __len__(self):
         return len(self.datas)
