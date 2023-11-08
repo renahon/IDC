@@ -327,24 +327,24 @@ def get_biased_mnist_dataloader(
         pin_memory=True,
     )
     return dataloader
-from torchvision.models import ResNet101_Weights, resnet101
-from torchvision.models.feature_extraction import create_feature_extractor
-from tensordict import TensorDict
-dl_aligned = get_biased_mnist_dataloader(
-                root="/home/infres/rnahon/projects/IDC/data_MNIST",
-                batch_size=100,
-                data_label_correlation=0.991,
-            )
-weights = ResNet101_Weights.IMAGENET1K_V2
-preprocess = weights.transforms()
-model = resnet101(weights=weights)
-return_layer = {"layer4.2.relu_2": "bot",}
-# get the output of the bottleneck layer
-model_bot = create_feature_extractor(model, return_layer)
-model_bot.eval()
-print(model)
-for _, (img2, label2, bias_label2, idx2) in enumerate(dl_aligned):
-    img2_1 = preprocess(img2)
-    rep1 = model_bot(img2_1)['bot']
-    print(rep1.size())
-    break  
+#from torchvision.models import ResNet101_Weights, resnet101
+#from torchvision.models.feature_extraction import create_feature_extractor
+#from tensordict import TensorDict
+#dl_aligned = get_biased_mnist_dataloader(
+#                root="/home/infres/rnahon/projects/IDC/data_MNIST",
+#                batch_size=100,
+#                data_label_correlation=0.991,
+#            )
+#weights = ResNet101_Weights.IMAGENET1K_V2
+#preprocess = weights.transforms()
+#model = resnet101(weights=weights)
+#return_layer = {"layer4.2.relu_2": "bot",}
+## get the output of the bottleneck layer
+#model_bot = create_feature_extractor(model, return_layer)
+#model_bot.eval()
+#print(model)
+#for _, (img2, label2, bias_label2, idx2) in enumerate(dl_aligned):
+#    img2_1 = preprocess(img2)
+#    rep1 = model_bot(img2_1)['bot']
+#    print(rep1.size())
+#    break 

@@ -275,6 +275,11 @@ class DataLoader(torch.utils.data.DataLoader):
         kwargs["collate_fn"] = self_collate
         super().__init__(dataset, **kwargs)
 
+
+import torchsnapshot
+import tensordict
+
+
 class DatasetBias(Dataset):
     def __init__(
         self, args, data_path, vocabs, rev_vocabs, images, split, set_type=None
@@ -335,37 +340,47 @@ class DatasetBias(Dataset):
             "; nonsemantic ",
             count_ns,
         )
-    
+
     @torch.no_grad()
     def load_data(self, dataset):
         if dataset == "BiasedMNIST":
-            dict_path = "/home/infres/rnahon/projects/IDC/data_MNIST/dict_resnet101"
-            self.datas = {}
+            dict_path = (
+                "/home/infres/rnahon/projects/IDC/data_MNIST/dict_resnet101_test"
+            )
+            dataset_length = 600
+            bs = 100
+            dict_bs = int(np.ceil(dataset_length / bs))
+            self.datas = tensordict.TensorDict({}, [dict_bs])
             if os.path.exists(dict_path):
-                a=0
-            #    snapshot = Snapshot(path=dict_path)
-            #    #cf https://pytorch.org/tensordict/saving.html
-            #    app_state = {"state": torchsnapshot.StateDict(tensordict=self.datas.state_dict(keep_vars=True))}
-            #    self.datas= snapshot.restor(app_state=app_state)
-            else: 
+                snapshot = torchsnapshot.Snapshot(path=dict_path)
+                # cf https://pytorch.org/tensordict/saving.html
+                app_state = {
+                    "state": torchsnapshot.StateDict(
+                        tensordict=self.datas.state_dict(keep_vars=True)
+                    )
+                }
+                x = self.datas["label1"]
+                snapshot.restore(app_state=app_state)
+            else:
                 dl_aligned = get_biased_mnist_dataloader(
                     root="/home/infres/rnahon/projects/IDC/data_MNIST",
-                    batch_size=100,
-                    data_label_correlation=0.991,
+                    batch_size=bs,
+                    data_label_correlation=0.99,
                 )
                 dl_balanced = get_biased_mnist_dataloader(
                     root="/home/infres/rnahon/projects/IDC/data_MNIST",
-                    batch_size=100,
-                    data_label_correlation=0.101,
+                    batch_size=bs,
+                    data_label_correlation=0.10,
                 )
 
                 # Load ResNet101 - Pretrained on MNIST
+                print("Loading model")
                 weights = ResNet101_Weights.IMAGENET1K_V2
                 preprocess = weights.transforms()
-                model = resnet101(weights=weights)
+                model = resnet101(weights=weights).cuda()
                 return_layer = {"layer4.2.relu_2": "bot"}
                 # get the output of the bottleneck layer
-                model_bot = create_feature_extractor(model, return_layer)
+                model_bot = create_feature_extractor(model, return_layer).cuda()
                 model_bot.eval()
                 # Iterate on both dataloaders at once
                 dataloader_iterator = iter(dl_aligned)
@@ -376,28 +391,43 @@ class DatasetBias(Dataset):
                         dataloader_iterator = iter(dl_aligned)
                         (img1, label1, bias_label1) = next(dataloader_iterator)
                     # Resize img1, img2 to have them be 3x224x224 and fit to resnet101
-                    if i < 10: # to remove 
-                        print(img1.size())
-                        img1_transformed = preprocess(img1)
-                        img2_transformed = preprocess(img2)
-                        print(img1_transformed.size())
-                        # Get representations of img1 and img2 by ResNet101
-                        rep1 = model_bot(img1_transformed)['bot']
-                        rep2 = model_bot(img2_transformed)['bot']
-                        print(f"Size evolution: img:{img1.size()}, resized img:{img1_transformed.size()}, latent rep:{rep1.size()}")
-                        dict_imgs = {
-                                "img1": rep1,
-                                "label1": label1,
-                                "bias_label1": bias_label1,
-                                "img2": rep2,
-                                "label2": label2,
-                                "bias_label2": bias_label2,
-                            }
-                        self.datas[i]=dict_imgs
-                print("Total datas ", len(self.datas))
-                #app_state = {"state": torchsnapshot.StateDict(tensordict=self.datas.state_dict(keep_vars=True))}
-                #snapshot = Snapshot.take(app_state=app_state, path=dict_path)
-                
+                    if i < dict_bs:  # to remove
+                        self.datas[i]["img1"] = model_bot(preprocess(img1.cuda()))[
+                            "bot"
+                        ].cpu()
+                        self.datas[i]["label1"] = label1
+                        self.datas[i]["bias_label1"] = bias_label1
+                        self.datas[i]["img2"] = model_bot(preprocess(img2.cuda()))[
+                            "bot"
+                        ].cpu()
+                        self.datas[i]["label2"] = label2
+                        self.datas[i]["bias_label2"] = bias_label2
+                print(self.datas[i]["label1"])
+                app_state = {
+                    "state": torchsnapshot.StateDict(
+                        tensordict=self.datas.state_dict(keep_vars=True)
+                    )
+                }
+                snapshot = torchsnapshot.Snapshot.take(
+                    app_state=app_state, path=dict_path
+                )
+
+                self.datas2 = tensordict.TensorDict({}, [dict_bs])
+
+                snapshot2 = torchsnapshot.Snapshot(path=dict_path)
+                # cf https://pytorch.org/tensordict/saving.html
+                app_state1 = {
+                    "state": torchsnapshot.StateDict(
+                        tensordict=self.datas2.state_dict(keep_vars=True)
+                    )
+                }
+                snapshot2.restore(app_state=app_state1)
+                print(f"datas label1= {self.datas['label1']}")
+                print(f"datas2 label1= {self.datas2['label1']}")
+
+                assert (self.datas == self.datas2).all()
+                assert self.datas["img1"].batch_size == self.datas2["img1"].batch_size
+
     def __len__(self):
         return len(self.datas)
 
@@ -434,16 +464,20 @@ class DatasetBias(Dataset):
         #    # get raw triplet input data (img1, img2, text)
         img1 = data["img1"]
         img2 = data["img2"]
+        y1 = data["label1"]
+        y2 = data["label2"]
+        b1 = data["bias_label1"]
+        b2 = data["bias_label2"]
         dim, n, n = img1.size(0), img1.size(1), img1.size(2)
         ##print(img1)
-        #img1, img2 = img1.view(dim, -1).transpose(0, 1), img2.view(dim, -1).transpose(
+        # img1, img2 = img1.view(dim, -1).transpose(0, 1), img2.view(dim, -1).transpose(
         #    0, 1
-        #)
+        # )
         ##print(img1)
         # make sure img1 & img2 shape = [49,2048]
         ImgId = None  # data['img1']+'_'+data['img2']
         gt_caps = None  #  [' '.join(tokens) for tokens in description]
-        return img1, img2, gt_caps, ImgId
+        return img1, img2, y1, y2, b1, b2
 
     def padding(self, sent):
         if len(sent) > self.max_len - 3:
@@ -776,9 +810,15 @@ def test(args):
     )
     for step, batch in enumerate(tk0):
         tk0.set_postfix(batch=step)
-        print(batch[0].size())
-        img1 = batch[:,0].to("cuda:0")
-        img2 = batch[1].to("cuda:0")
+        img1 = batch[0]
+        print(torch.sum(img1))
+        img2 = batch[1]
+        y1 = batch[2]
+        print(y1)
+
+        y2 = batch[3]
+        b1 = batch[4]
+        b2 = batch[5]
         ids = model.greedy(img1, img2).data.tolist()
         # global_step += 1
         # model.eval()
