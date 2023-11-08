@@ -12,6 +12,7 @@ from tensordict import TensorDict
 import torch
 import torch.optim as Optim
 import time
+import torchsnapshot
 from torchvision.models.feature_extraction import create_feature_extractor
 from biased_mnist import get_biased_mnist_dataloader
 from bird.modules_finetune_bird import (
@@ -276,7 +277,7 @@ class DataLoader(torch.utils.data.DataLoader):
         kwargs["collate_fn"] = self_collate
         super().__init__(dataset, **kwargs)
 
-
+from torchsnapshot import Snapshot
 class DatasetBias(Dataset):
     def __init__(
         self, args, data_path, vocabs, rev_vocabs, images, split, set_type=None
@@ -341,13 +342,15 @@ class DatasetBias(Dataset):
     @torch.no_grad()
     def load_data(self, dataset):
         if dataset == "BiasedMNIST":
-            dict_path = "/home/infres/rnahon/projects/IDC/data_MNIST/dict_resnet101.pth"
+            dict_path = "/home/infres/rnahon/projects/IDC/data_MNIST/dict_resnet101"
+            self.datas = TensorDict().to("cuda:0")
             if os.path.exists(dict_path):
                 snapshot = Snapshot(path=dict_path)
                 #cf https://pytorch.org/tensordict/saving.html
-                self.datas= torchsnapshot.Snapshot.take(a)
+                app_state = {"state": torchsnapshot.StateDict(tensordict=self.datas.state_dict(keep_vars=True))}
+                self.datas= snapshot.restor(app_state=app_state)
             else: 
-                self.datas = TensorDict().to("cuda:0")
+                
                 dl_aligned = get_biased_mnist_dataloader(
                     root="/home/infres/rnahon/projects/IDC/data_MNIST",
                     batch_size=100,
@@ -391,10 +394,11 @@ class DatasetBias(Dataset):
                                 "img2": rep2,
                                 "label2": label2,
                                 "bias_label2": bias_label2,
-                            }
-                        self.datas.append(dict_imgs)
+                            })
+                        self.datas[i]=dict_imgs
                 print("Total datas ", len(self.datas))
-
+                app_state = {"state": torchsnapshot.StateDict(tensordict=self.datas.state_dict(keep_vars=True))}
+                snapshot = Snapshot.take(app_state=app_state, path=dict_path)
     def __len__(self):
         return len(self.datas)
 
