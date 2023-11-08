@@ -8,11 +8,9 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd import Variable
-from tensordict import TensorDict
 import torch
 import torch.optim as Optim
 import time
-import torchsnapshot
 from torchvision.models.feature_extraction import create_feature_extractor
 from biased_mnist import get_biased_mnist_dataloader
 from bird.modules_finetune_bird import (
@@ -277,7 +275,6 @@ class DataLoader(torch.utils.data.DataLoader):
         kwargs["collate_fn"] = self_collate
         super().__init__(dataset, **kwargs)
 
-from torchsnapshot import Snapshot
 class DatasetBias(Dataset):
     def __init__(
         self, args, data_path, vocabs, rev_vocabs, images, split, set_type=None
@@ -343,14 +340,14 @@ class DatasetBias(Dataset):
     def load_data(self, dataset):
         if dataset == "BiasedMNIST":
             dict_path = "/home/infres/rnahon/projects/IDC/data_MNIST/dict_resnet101"
-            self.datas = TensorDict().to("cuda:0")
+            self.datas = {}
             if os.path.exists(dict_path):
-                snapshot = Snapshot(path=dict_path)
-                #cf https://pytorch.org/tensordict/saving.html
-                app_state = {"state": torchsnapshot.StateDict(tensordict=self.datas.state_dict(keep_vars=True))}
-                self.datas= snapshot.restor(app_state=app_state)
+                a=0
+            #    snapshot = Snapshot(path=dict_path)
+            #    #cf https://pytorch.org/tensordict/saving.html
+            #    app_state = {"state": torchsnapshot.StateDict(tensordict=self.datas.state_dict(keep_vars=True))}
+            #    self.datas= snapshot.restor(app_state=app_state)
             else: 
-                
                 dl_aligned = get_biased_mnist_dataloader(
                     root="/home/infres/rnahon/projects/IDC/data_MNIST",
                     batch_size=100,
@@ -387,18 +384,20 @@ class DatasetBias(Dataset):
                         # Get representations of img1 and img2 by ResNet101
                         rep1 = model_bot(img1_transformed)['bot']
                         rep2 = model_bot(img2_transformed)['bot']
-                        dict_imgs = TensorDict({
+                        print(f"Size evolution: img:{img1.size()}, resized img:{img1_transformed.size()}, latent rep:{rep1.size()}")
+                        dict_imgs = {
                                 "img1": rep1,
                                 "label1": label1,
                                 "bias_label1": bias_label1,
                                 "img2": rep2,
                                 "label2": label2,
                                 "bias_label2": bias_label2,
-                            })
+                            }
                         self.datas[i]=dict_imgs
                 print("Total datas ", len(self.datas))
-                app_state = {"state": torchsnapshot.StateDict(tensordict=self.datas.state_dict(keep_vars=True))}
-                snapshot = Snapshot.take(app_state=app_state, path=dict_path)
+                #app_state = {"state": torchsnapshot.StateDict(tensordict=self.datas.state_dict(keep_vars=True))}
+                #snapshot = Snapshot.take(app_state=app_state, path=dict_path)
+                
     def __len__(self):
         return len(self.datas)
 

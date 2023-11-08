@@ -15,6 +15,7 @@ __pycache__/
 *.so
 data/
 data_MNIST/*
+python*
 # Distribution / packaging
 .Python
 build/

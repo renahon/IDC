@@ -329,6 +329,7 @@ def get_biased_mnist_dataloader(
     return dataloader
 from torchvision.models import ResNet101_Weights, resnet101
 from torchvision.models.feature_extraction import create_feature_extractor
+from tensordict import TensorDict
 dl_aligned = get_biased_mnist_dataloader(
                 root="/home/infres/rnahon/projects/IDC/data_MNIST",
                 batch_size=100,
